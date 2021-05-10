@@ -1,0 +1,25 @@
+{
+  "name": "koishi-plugin-blive",
+  "version": "0.0.1",
+  "description": "Bilibili Live Subscription plugin for koishijs",
+  "main": "index.js",
+  "repository": "https://github.com/koishijs/koishi-plugin-blive.git",
+  "author": "Dragon-Fish <824399619@qq.com>",
+  "license": "Apache-2.0",
+  "dependencies": {
+    "axios": "^0.21.1"
+  },
+  "devDependencies": {
+    "@dragon-fish/bump": "^0.0.15",
+    "koishi-core": "^3.10.2"
+  },
+  "peerDependencies": {
+    "koishi-core": "^3.10.2"
+  },
+  "keywords": [
+    "bilibili",
+    "chat-bot",
+    "koishi",
+    "qq-bot"
+  ]
+}
