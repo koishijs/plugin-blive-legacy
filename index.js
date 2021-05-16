@@ -1,23 +1,39 @@
-const { default: axios } = require('axios')
-const { Context, segment, Time, Session } = require('koishi-core')
-const { Logger, Tables } = require('koishi-core')
-const logger = new Logger('bilibili')
-logger.log = logger.info
+/**
+ * @name koishi-plugin-blive
+ * @desc Bilibili Live Subscription plugin for koishijs
+ *
+ * @license Apache-2.0
+ * @author 机智的小鱼君 <dragon-fish@qq.com>
+ */
+// eslint-disable-next-line no-unused-vars
+const { Context, segment, Time } = require('koishi-core')
+const { Tables } = require('koishi-core')
+const { logger } = require('./util/logger')
 
-const colName = 'bilibili-plus'
+const { checkBroadcast } = require('./module/broadcast')
+const {
+  getFollowedBiliUps,
+  addFollowedBiliUps,
+  removeFollowedBiliUps,
+  getAllBiliUps,
+} = require('./module/database')
+const { getLiveDetailsByUid } = require('./module/getLive')
+const { getUidByLiveid, getUidByName } = require('./module/getUid')
+const { getUserById, getUsersByName } = require('./module/getUser')
+const { liveStatusName } = require('./util/liveStatusName')
 
 /**
  * @param {Context} ctx
  */
 function apply(ctx) {
-  ctx = ctx.select('database')
+  ctx = ctx.select('database').select('channel')
 
   ctx
     .command('bilibili.searchuser <username:string>', '查找 bilibili 用户')
     .shortcut(/^(?:查|找|查找)b站用户(.+)$/, { args: ['$1'] })
     .action(async ({ session }, username) => {
       if (!username) return
-      const users = await findUsersByName(username)
+      const users = await getUsersByName(username)
 
       let uid
       if (users.length < 1) {
@@ -34,7 +50,7 @@ function apply(ctx) {
               )
               .join('\n')
               .trim(),
-            '请输入想查看的用户对应的编号。'
+            '请输入想查看的用户对应的编号。',
           ].join('\n')
         )
         let answer = await session.prompt(30 * 1000)
@@ -54,7 +70,7 @@ function apply(ctx) {
         face,
         sign,
         level,
-        live_room
+        live_room,
       } = await getUserById(uid)
 
       return (
@@ -65,10 +81,10 @@ function apply(ctx) {
           `等级：${level}级，性别：${sex}`,
           sign,
           live_room.roomStatus === 1
-            ? `直播间：[${liveStatusName(live_room.liveStatus)}] ${
-                live_room.title
-              } ${live_room.url} (人气 ${live_room.online})`
-            : null
+            ? `直播间：[${liveStatusName(live_room.liveStatus)}] ` +
+              `${live_room.title} ${live_room.url} ` +
+              `(人气 ${live_room.online})`
+            : null,
         ].join('\n')
       )
     })
@@ -107,7 +123,7 @@ function apply(ctx) {
         followerNum,
         liveStatus,
         liveTime,
-        online
+        online,
       } = details
 
       return [
@@ -120,10 +136,9 @@ function apply(ctx) {
         }${username} (${followerNum} 关注)`,
         `状态：${liveStatusName(liveStatus)} (${online} 人气)`,
         liveTime > 0
-          ? `开播时间：${new Date(
-              liveTime
-            ).toLocaleString()} (${Time.formatTime(Date.now() - liveTime)})`
-          : null
+          ? `开播时间：${new Date(liveTime).toLocaleString()} ` +
+            `(${Time.formatTime(Date.now() - liveTime)})`
+          : null,
       ].join('\n')
     })
 
@@ -156,7 +171,7 @@ function apply(ctx) {
 
         return [
           `本群一共单推了 ${users.length} 名 bilibili 主播！`,
-          userList
+          userList,
         ].join('\n')
       }
 
@@ -183,9 +198,9 @@ function apply(ctx) {
 
   // 轮询
   async function loopTimmer() {
-    const users = await ctx.database.get(colName, {})
+    const users = await getAllBiliUps(ctx)
     users.forEach((user) => {
-      checkForBroadcast(ctx, user)
+      checkBroadcast(ctx, user)
     })
     logger.info(
       new Date().toISOString(),
@@ -204,288 +219,10 @@ function apply(ctx) {
   })
 
   // 扩展数据库
-  Tables.extend(colName, { primary: 'id' })
-}
-
-async function findUsersByName(keyword) {
-  const { data } = await axios.get(
-    'https://api.bilibili.com/x/web-interface/search/type',
-    {
-      params: { keyword, search_type: 'bili_user' },
-      headers: {
-        'User-Agent':
-          'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:88.0) Gecko/20100101 Firefox/88.0'
-      }
-    }
-  )
-  return data?.data?.result || []
-}
-
-async function getUidByName(name) {
-  const users = await findUsersByName(name)
-  if (users.lenth < 1) return null
-  return users[0].mid
-}
-
-async function getUserById(mid) {
-  const { data } = await axios.get(
-    'https://api.bilibili.com/x/space/acc/info',
-    {
-      params: { mid },
-      headers: {
-        'User-Agent':
-          'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:88.0) Gecko/20100101 Firefox/88.0'
-      }
-    }
-  )
-  if (data.code !== 0) throw data
-  return data.data
-}
-
-async function getUidByLiveid(roomid) {
-  return (await getLiveInit(roomid)).uid
-}
-
-function getUidFromUrl(url) {
-  const reg = /(?:https?:)?\/\/space\.bilibili\.com\/([0-9]*).*/i
-  const res = reg.exec(url)
-  if (res && res[1]) return res[1]
-  return null
-}
-
-async function getLiveInit(roomid) {
-  const { data } = await axios.get(
-    'https://api.live.bilibili.com/room/v1/Room/room_init',
-    {
-      params: { id: roomid },
-      headers: {
-        'User-Agent':
-          'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:88.0) Gecko/20100101 Firefox/88.0'
-      }
-    }
-  )
-  return data?.data
-}
-
-async function getLiveMaster(uid) {
-  const { data } = await axios.get(
-    'https://api.live.bilibili.com/live_user/v1/Master/info',
-    {
-      params: { uid },
-      headers: {
-        'User-Agent':
-          'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:88.0) Gecko/20100101 Firefox/88.0'
-      }
-    }
-  )
-  return data?.data
-}
-
-async function getLiveInfo(uid) {
-  const { data } = await axios.get(
-    'https://api.live.bilibili.com/room/v1/Room/getRoomInfoOld',
-    {
-      params: { mid: uid },
-      headers: {
-        'User-Agent':
-          'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:88.0) Gecko/20100101 Firefox/88.0',
-        Cookie: `LIVE_BUVID=${Math.random()}`
-      }
-    }
-  )
-  return data?.data
-}
-
-async function getLiveDetailsByUid(uid) {
-  const [liveDetails, liveMaster] = await Promise.all([
-    getLiveInfo(uid),
-    getLiveMaster(uid)
-  ])
-
-  if (!liveDetails.roomid || liveDetails.roomid === 0) return null
-
-  const {
-    roomStatus,
-    liveStatus,
-    url,
-    title,
-    cover,
-    online,
-    roomid
-  } = liveDetails
-  const { medal_name, room_news, follower_num } = liveMaster
-  const { uname: username } = liveMaster.info
-
-  const { live_time } = await getLiveInit(roomid)
-  return {
-    uid,
-    username,
-    roomStatus,
-    liveStatus,
-    url,
-    title,
-    cover,
-    online,
-    roomid,
-    medalName: medal_name,
-    roomNews: room_news,
-    followerNum: follower_num,
-    liveTime: live_time * 1000
-  }
-}
-
-function liveStatusName(status) {
-  switch (status) {
-    case 0:
-      return '未开播'
-    case 1:
-      return '直播中'
-    case 2:
-      return '轮播中'
-  }
-}
-
-/**
- * @param {Session} session
- */
-async function getFollowedBiliUps(session) {
-  const data = await session.database.get(colName, {
-    channels: [`${session.platform}:${session.channelId}`]
-  })
-
-  return data
-}
-
-/**
- * @param {Session} session
- */
-async function addFollowedBiliUps(session, uid) {
-  const channel = `${session.platform}:${session.channelId}`
-  let userData = await session.database.get(colName, {
-    b_uid: [uid]
-  })
-
-  logger.info(userData)
-
-  let user = userData[0] || {}
-
-  const channels = user?.channels || []
-  if (user?.channels?.includes(channel))
-    return `您已经单推过 ${user.b_username} 了，居然不记得了吗，臭弟弟。`
-
-  channels.push(channel)
-
-  const details = await getLiveDetailsByUid(uid)
-  if (!details) return '未查询到直播间信息呢。'
-  const { roomid, username, liveTime } = details
-
-  const updateData = {
-    b_uid: uid,
-    b_username: username,
-    b_roomid: roomid,
-    lastCall: liveTime,
-    channels
-  }
-
-  if (userData.length < 1) {
-    await session.database.create(colName, updateData)
-  } else {
-    await session.database.update(colName, [{ ...updateData, id: user.id }])
-  }
-
-  return `单推成功：${username} (直播间 ${roomid})`
-}
-
-/**
- * @param {Session} session
- */
-async function removeFollowedBiliUps(session, uid) {
-  const channel = `${session.platform}:${session.channelId}`
-  let userData = await session.database.get(colName, {
-    b_uid: [uid]
-  })
-
-  logger.info(userData)
-  if (userData.length < 1) return '找不到主播数据。'
-
-  const user = userData[0]
-
-  const channels = user?.channels || []
-  if (channels.includes(channel)) {
-    channels.splice(channel.indexOf(channels), 1)
-  } else {
-    return `你根本就没关注过 ${user.b_username}，臭弟弟！`
-  }
-
-  if (channels.length < 1) {
-    await session.database.remove(colName, { b_uid: [user.b_uid] })
-    logger.info('无频道关注，移除记录', uid)
-  } else {
-    await session.database.update(colName, [{ channels, id: user.id }])
-  }
-
-  return `取关成功：${user.b_username} (直播间 ${user.b_roomid})，再见吧臭弟弟，你肯定喜欢上别的主播了。`
-}
-
-async function checkForBroadcast(ctx, user) {
-  const { b_uid, lastCall } = user
-  const { liveTime } = await getLiveDetailsByUid(b_uid)
-  if (liveTime !== lastCall) {
-    broadcast(ctx, user)
-  } else {
-    logger.info(new Date().toISOString(), '未开播/已广播', b_uid)
-  }
-}
-
-/**
- * @param {Context} ctx
- * @param {Session} session
- */
-async function broadcast(ctx, user) {
-  const { id, b_uid, channels } = user
-  const {
-    title,
-    roomid,
-    url,
-    roomNews,
-    medalName,
-    username,
-    followerNum,
-    liveStatus,
-    liveTime,
-    online
-  } = await getLiveDetailsByUid(b_uid)
-  await ctx.broadcast(
-    channels,
-    [
-      `您单推的主播${
-        liveStatus === 1 ? '开播啦！' : '已下播，记得下次再来哦！'
-      }`,
-      title,
-      url,
-      roomNews.content ? roomNews.content : null,
-      `主播：${
-        medalName ? '[' + medalName + ']' : ''
-      }${username} (${followerNum} 关注)`,
-      `状态：${liveStatusName(liveStatus)} (${online} 人气)`,
-      liveTime > 0
-        ? `开播时间：${new Date(liveTime).toLocaleString()} (${Time.formatTime(
-            Date.now() - liveTime
-          )})`
-        : null
-    ].join('\n')
-  )
-  await ctx.database.update(colName, [
-    { id, lastCall: liveTime, b_username: username, b_roomid: roomid }
-  ])
-  logger.info(
-    new Date().toISOString(),
-    liveStatus === 1 ? '开播广播' : '下播广播',
-    b_uid
-  )
+  Tables.extend(require('./module/database').dbTable, { primary: 'id' })
 }
 
 module.exports = {
   name: 'plugin-blive',
-  apply
+  apply,
 }

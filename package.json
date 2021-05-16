@@ -6,11 +6,15 @@
   "repository": "https://github.com/koishijs/koishi-plugin-blive.git",
   "author": "Dragon-Fish <824399619@qq.com>",
   "license": "Apache-2.0",
+  "scripts": {
+    "lint": "eslint index.js module/*.js util/*.js"
+  },
   "dependencies": {
     "axios": "^0.21.1"
   },
   "devDependencies": {
     "@dragon-fish/bump": "^0.0.15",
+    "eslint": "^7.26.0",
     "koishi-core": "^3.10.2"
   },
   "peerDependencies": {
