@@ -6,8 +6,7 @@
  * @author 机智的小鱼君 <dragon-fish@qq.com>
  */
 // eslint-disable-next-line no-unused-vars
-const { Context, segment, Time } = require('koishi-core')
-const { Tables } = require('koishi-core')
+const { Context, segment, Time, Tables } = require('koishi-core')
 const { logger } = require('./util/logger')
 
 const { checkBroadcast } = require('./module/broadcast')
@@ -198,7 +197,14 @@ function apply(ctx) {
 
   // 轮询
   async function loopTimmer() {
-    const users = await getAllBiliUps(ctx)
+    logger.log('Timmer')
+    let users
+    try {
+      users = await getAllBiliUps(ctx)
+    } catch (err) {
+      logger.warn('Timmer', err)
+    }
+    logger.log('Timmer', users)
     users.forEach((user) => {
       checkBroadcast(ctx, user)
     })
@@ -212,6 +218,7 @@ function apply(ctx) {
   ctx.on('connect', () => {
     if (globalThis.biliPlusTimmer) return
     globalThis.biliPlusTimmer = true
+    logger.info('Starting')
 
     loopTimmer()
     // eslint-disable-next-line no-undef
@@ -225,4 +232,5 @@ function apply(ctx) {
 module.exports = {
   name: 'plugin-blive',
   apply,
+  Tables,
 }

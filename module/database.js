@@ -1,5 +1,6 @@
+const { Tables } = require('..')
 const { getLiveDetailsByUid } = require('./getLive')
-const { logger } = require('./util/logger')
+const { logger } = require('../util/logger')
 
 const dbTable = 'bilibili-plus'
 
